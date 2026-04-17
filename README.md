@@ -59,9 +59,9 @@ git clone https://你的仓库地址/Xboard-Oauth.git plugins/Oauth
    - `google_id`
    - `github_id`
    - `linuxdo_id`
-6. 若启用 LinuxDO Connect，可在插件配置中设置“LinuxDO 首次登录模式”：
-   - `direct_register`：首次登录且站内不存在同邮箱账号时，自动注册并绑定
-   - `bind_existing`：首次登录时仅允许绑定已存在的同邮箱账号，不自动注册
+6. 若启用 Google、GitHub 或 LinuxDO Connect，可分别设置各自的“首次登录模式”：
+   - `direct_register`：首次登录且站内不存在可直接绑定的站内账号时，允许创建新账号并完成绑定
+   - `bind_existing`：首次登录时仅允许绑定已存在的站内账号，不创建新账号
 
 ## 回调地址
 
@@ -204,7 +204,8 @@ POST /api/v1/user/oauth/{driver}/unbind
 - `google_id`、`github_id`、`linuxdo_id` 保存的是第三方平台用户唯一标识，不是邮箱。
 - 邮箱用于查找和绑定已有站内账号。
 - 若站内已存在同邮箱账号，则会绑定到现有账号。
-- 若站内不存在该邮箱账号，则会自动创建新账号。
+- 若站内不存在该邮箱账号，且该渠道处于 `direct_register` 模式，则会自动创建新账号。
+- 若该渠道处于 `bind_existing` 模式，则会要求用户先登录现有账号后再完成绑定。
 - 首次通过 OAuth 自动创建账号时，会生成一段随机本地密码并保存哈希值。
 
 ## 适用范围

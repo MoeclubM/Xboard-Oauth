@@ -362,32 +362,42 @@ class OAuthService
         }
 
         $email = strtolower(trim((string) ($profile['email'] ?? '')));
+        if ($email !== '') {
+            $user = User::byEmail($email)->first();
+            if ($user) {
+                if ($user->{$providerColumn} && $user->{$providerColumn} !== $providerId) {
+                    return [false, [400, __('This email is already linked to another :provider account', [
+                        'provider' => $provider['label'],
+                    ])]];
+                }
+
+                $user->{$providerColumn} = $providerId;
+                if (!$user->save()) {
+                    return [false, [500, __('Failed to link :provider account', [
+                        'provider' => $provider['label'],
+                    ])]];
+                }
+
+                return [true, $user];
+            }
+        }
+
+        if ((int) admin_setting('stop_register', 0)) {
+            return [false, [400, __(':provider login currently requires binding an existing account first. Please log in to your site account and bind :provider from the profile page before using it.', [
+                'provider' => $provider['label'],
+            ]), 'bind_existing']];
+        }
+
+        if ($this->getProviderRegisterMode($provider['driver']) === 'bind_existing') {
+            return [false, [400, __(':provider login currently requires binding an existing account first. Please log in to your site account and bind :provider from the profile page before using it.', [
+                'provider' => $provider['label'],
+            ]), 'bind_existing']];
+        }
+
         if ($email === '') {
             return [false, [400, __('Unable to get your email from :provider', [
                 'provider' => $provider['label'],
             ])]];
-        }
-
-        $user = User::byEmail($email)->first();
-        if ($user) {
-            if ($user->{$providerColumn} && $user->{$providerColumn} !== $providerId) {
-                return [false, [400, __('This email is already linked to another :provider account', [
-                    'provider' => $provider['label'],
-                ])]];
-            }
-
-            $user->{$providerColumn} = $providerId;
-            if (!$user->save()) {
-                return [false, [500, __('Failed to link :provider account', [
-                    'provider' => $provider['label'],
-                ])]];
-            }
-
-            return [true, $user];
-        }
-
-        if ($provider['driver'] === 'linuxdo' && $this->getLinuxdoRegisterMode() === 'bind_existing') {
-            return [false, [400, __('LinuxDO login currently requires binding an existing account first. Please log in to your site account and bind LinuxDO from the profile page before using it.'), 'bind_existing']];
         }
 
         $confirmToken = Str::random(40);
@@ -778,9 +788,9 @@ class OAuthService
         return $value !== '' ? $value : null;
     }
 
-    protected function getLinuxdoRegisterMode(): string
+    protected function getProviderRegisterMode(string $driver): string
     {
-        return $this->getString('linuxdo_register_mode') === 'bind_existing'
+        return $this->getString($driver . '_register_mode') === 'bind_existing'
             ? 'bind_existing'
             : 'direct_register';
     }

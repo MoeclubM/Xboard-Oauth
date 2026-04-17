@@ -1,9 +1,9 @@
 {
   "name": "OAuth 登录",
   "code": "oauth",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "通过插件管理 Google、GitHub 与 LinuxDO Connect 的 OAuth 登录配置。",
-  "author": "Niceboard",
+  "author": "MoeclubM",
   "type": "feature",
   "config": {
     "google_enabled": {
@@ -26,6 +26,23 @@
       "placeholder": "请输入 Google OAuth Client Secret",
       "description": "请填写 Google 控制台签发的 Client Secret。"
     },
+    "google_register_mode": {
+      "type": "string",
+      "default": "direct_register",
+      "label": "Google 首次登录模式",
+      "placeholder": "direct_register / bind_existing",
+      "description": "direct_register 表示首次登录时允许创建站内账号，bind_existing 表示仅允许绑定已存在的站内账号。",
+      "options": [
+        {
+          "label": "允许自动注册",
+          "value": "direct_register"
+        },
+        {
+          "label": "仅允许绑定已有账号",
+          "value": "bind_existing"
+        }
+      ]
+    },
     "github_enabled": {
       "type": "boolean",
       "default": false,
@@ -45,6 +62,23 @@
       "label": "GitHub Client Secret",
       "placeholder": "请输入 GitHub OAuth App Client Secret",
       "description": "请填写 GitHub OAuth App 的 Client Secret。"
+    },
+    "github_register_mode": {
+      "type": "string",
+      "default": "direct_register",
+      "label": "GitHub 首次登录模式",
+      "placeholder": "direct_register / bind_existing",
+      "description": "direct_register 表示首次登录时允许创建站内账号，bind_existing 表示仅允许绑定已存在的站内账号。",
+      "options": [
+        {
+          "label": "允许自动注册",
+          "value": "direct_register"
+        },
+        {
+          "label": "仅允许绑定已有账号",
+          "value": "bind_existing"
+        }
+      ]
     },
     "linuxdo_enabled": {
       "type": "boolean",
@@ -71,14 +105,14 @@
       "default": "direct_register",
       "label": "LinuxDO 首次登录模式",
       "placeholder": "direct_register / bind_existing",
-      "description": "direct_register 表示首次登录时自动注册站内账号，bind_existing 表示仅允许绑定已存在的同邮箱账号。",
+      "description": "direct_register 表示首次登录时允许创建站内账号，bind_existing 表示仅允许绑定已存在的站内账号。",
       "options": [
         {
-          "label": "直接注册",
+          "label": "允许自动注册",
           "value": "direct_register"
         },
         {
-          "label": "强制绑定账号",
+          "label": "仅允许绑定已有账号",
           "value": "bind_existing"
         }
       ]
