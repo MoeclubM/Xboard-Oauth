@@ -22,6 +22,17 @@ class AuthController extends Controller
         return $this->oauthService->callback($driver, $request);
     }
 
+    public function confirmRegister(Request $request)
+    {
+        $token = trim((string) $request->input('token'));
+        [$success, $result] = $this->oauthService->confirmRegister($request, $token);
+        if (!$success) {
+            return $this->fail($result);
+        }
+
+        return $this->success($result);
+    }
+
     public function bindings(Request $request)
     {
         return $this->success($this->oauthService->getUserBindings($request->user()));

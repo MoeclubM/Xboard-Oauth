@@ -108,6 +108,84 @@ class OAuthService
         return [true, true];
     }
 
+    public function confirmRegister(Request $request, string $token): array
+    {
+        if ($token === '') {
+            return [false, [400, __('The OAuth registration confirmation is invalid or has expired')]];
+        }
+
+        $pendingRegister = Cache::get($this->getPendingRegisterCacheKey($token));
+        if (
+            !$pendingRegister
+            || empty($pendingRegister['driver'])
+            || empty($pendingRegister['provider_id'])
+        ) {
+            return [false, [400, __('The OAuth registration confirmation is invalid or has expired')]];
+        }
+
+        $provider = $this->getProvider((string) $pendingRegister['driver']);
+        if (!$provider) {
+            return [false, [400, __('Unsupported OAuth provider')]];
+        }
+
+        $providerColumn = $provider['user_column'];
+        $providerId = trim((string) $pendingRegister['provider_id']);
+        $email = strtolower(trim((string) ($pendingRegister['email'] ?? '')));
+
+        $user = User::where($providerColumn, $providerId)->first();
+        if (!$user && $email !== '') {
+            $user = User::byEmail($email)->first();
+            if ($user) {
+                if ($user->{$providerColumn} && $user->{$providerColumn} !== $providerId) {
+                    return [false, [400, __('This email is already linked to another :provider account', [
+                        'provider' => $provider['label'],
+                    ])]];
+                }
+
+                $user->{$providerColumn} = $providerId;
+                if (!$user->save()) {
+                    return [false, [500, __('Failed to link :provider account', [
+                        'provider' => $provider['label'],
+                    ])]];
+                }
+            }
+        }
+
+        if (!$user) {
+            [$success, $result] = $this->registerOauthUser(
+                $request,
+                $providerColumn,
+                $providerId,
+                $email,
+                $pendingRegister['invite_code'] ?? null
+            );
+
+            if (!$success) {
+                return [false, $result];
+            }
+
+            $user = $result;
+        }
+
+        if ($user->banned) {
+            return [false, [400, __('Your account has been suspended')]];
+        }
+
+        $user->last_login_at = time();
+        $user->save();
+
+        HookManager::call('user.login.after', $user);
+
+        $loginUrl = $this->loginService->generateQuickLoginUrl($user, $pendingRegister['redirect'] ?? 'dashboard');
+        if (!$loginUrl) {
+            return [false, [500, __('Failed to generate quick login URL')]];
+        }
+
+        Cache::forget($this->getPendingRegisterCacheKey($token));
+
+        return [true, $loginUrl];
+    }
+
     public function redirect(string $driver, Request $request): RedirectResponse
     {
         $provider = $this->getProvider($driver);
@@ -220,6 +298,14 @@ class OAuthService
 
             [$success, $result] = $this->resolveUser($request, $provider, $profile, $oauthState);
             if (!$success) {
+                if (($result[2] ?? null) === 'confirm_register') {
+                    return redirect()->away($this->buildFrontendUrl($scene, [
+                        'oauth_confirm_token' => $result[3] ?? '',
+                        'oauth_provider' => $provider['driver'],
+                        'oauth_email' => $result[4] ?? '',
+                    ]))->withCookie($forgetStateCookie);
+                }
+
                 $query = [
                     'oauth_error' => $result[1] ?? __('OAuth login failed'),
                 ];
@@ -282,12 +368,6 @@ class OAuthService
             ])]];
         }
 
-        if (!$this->isEmailVerified($profile)) {
-            return [false, [400, __(':provider did not return a verified email address', [
-                'provider' => $provider['label'],
-            ])]];
-        }
-
         $user = User::byEmail($email)->first();
         if ($user) {
             if ($user->{$providerColumn} && $user->{$providerColumn} !== $providerId) {
@@ -310,7 +390,18 @@ class OAuthService
             return [false, [400, __('LinuxDO login currently requires binding an existing account first. Please log in to your site account and bind LinuxDO from the profile page before using it.'), 'bind_existing']];
         }
 
-        return $this->registerOauthUser($request, $providerColumn, $providerId, $email, $oauthState['invite_code'] ?? null);
+        $confirmToken = Str::random(40);
+        Cache::put($this->getPendingRegisterCacheKey($confirmToken), [
+            'driver' => $provider['driver'],
+            'provider_id' => $providerId,
+            'email' => $email,
+            'invite_code' => $oauthState['invite_code'] ?? null,
+            'redirect' => $oauthState['redirect'] ?? 'dashboard',
+        ], now()->addMinutes(10));
+
+        return [false, [409, __('Please confirm account creation before registering with :provider', [
+            'provider' => $provider['label'],
+        ]), 'confirm_register', $confirmToken, $email]];
     }
 
     protected function bindUser(array $provider, array $profile, string $bindToken): array
@@ -502,20 +593,20 @@ class OAuthService
             throw new \RuntimeException(__('Failed to fetch GitHub user email'));
         }
 
-        $verifiedEmail = collect($emailResponse->json())
-            ->first(fn($item) => ($item['verified'] ?? false) && ($item['primary'] ?? false))
-            ?? collect($emailResponse->json())->first(fn($item) => ($item['verified'] ?? false));
+        $emailItem = collect($emailResponse->json())
+            ->first(fn($item) => ($item['primary'] ?? false))
+            ?? collect($emailResponse->json())->first();
 
-        if (!$verifiedEmail) {
-            throw new \RuntimeException(__('GitHub did not return a verified email address'));
+        if (!$emailItem || empty($emailItem['email'])) {
+            throw new \RuntimeException(__('Failed to fetch GitHub user email'));
         }
 
         $data = $userResponse->json();
 
         return [
             'id' => (string) ($data['id'] ?? ''),
-            'email' => $verifiedEmail['email'] ?? '',
-            'email_verified' => true,
+            'email' => $emailItem['email'] ?? '',
+            'email_verified' => (bool) ($emailItem['verified'] ?? false),
         ];
     }
 
@@ -607,11 +698,6 @@ class OAuthService
     {
         $baseUrl = rtrim((string) (admin_setting('app_url') ?: config('app.url') ?: url('/')), '/');
         return $baseUrl . '/api/v1/passport/auth/oauth/' . $driver . '/callback';
-    }
-
-    protected function isEmailVerified(array $profile): bool
-    {
-        return (bool) ($profile['email_verified'] ?? false);
     }
 
     protected function getUserAgent(): string
@@ -707,6 +793,11 @@ class OAuthService
     protected function getBindCacheKey(string $token): string
     {
         return 'PLUGIN_OAUTH_BIND_' . $token;
+    }
+
+    protected function getPendingRegisterCacheKey(string $token): string
+    {
+        return 'PLUGIN_OAUTH_PENDING_REGISTER_' . $token;
     }
 
     protected function getStateCookieName(string $state): string
