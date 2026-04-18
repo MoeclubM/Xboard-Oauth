@@ -1,7 +1,7 @@
 {
   "name": "OAuth 登录",
   "code": "oauth",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "通过插件管理 Google、GitHub 与 LinuxDO Connect 的 OAuth 登录配置。",
   "author": "MoeclubM",
   "type": "feature",

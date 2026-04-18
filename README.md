@@ -139,7 +139,7 @@ invite_code=当前表单中的邀请码
 
 ### 5. 前端需要在个人中心提供绑定入口
 
-由于前端登录态通常通过 `Authorization Bearer` 请求头传递，浏览器直接跳转到 OAuth 授权地址时不会自动携带该请求头，因此个人中心不能直接跳转到 `/passport/auth/oauth/{driver}/redirect`。
+由于前端登录态通常通过 `Authorization Bearer` 请求头传递，浏览器直接跳转到 OAuth 授权地址时不会自动携带该请求头，因此个人中心不能自行拼接绑定参数后直接跳转到 `/passport/auth/oauth/{driver}/redirect`。
 
 推荐接入方式如下：
 
@@ -154,16 +154,12 @@ invite_code=当前表单中的邀请码
 ```json
 {
   "data": {
-    "bind_token": "..."
+    "authorize_url": "https://oauth-provider.example/authorize?..."
   }
 }
 ```
 
-2. 前端再跳转到：
-
-```text
-/api/v1/passport/auth/oauth/{driver}/redirect?scene=bind&bind_token=...
-```
+2. 前端直接跳转到返回的 `authorize_url`。
 
 3. 绑定成功或失败后，插件会回跳到：
 

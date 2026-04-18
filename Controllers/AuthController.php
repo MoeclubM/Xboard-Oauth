@@ -40,12 +40,15 @@ class AuthController extends Controller
 
     public function prepareBind(string $driver, Request $request)
     {
-        [$success, $result] = $this->oauthService->prepareBind($driver, $request->user());
+        [$success, $result] = $this->oauthService->prepareBind($driver, $request, $request->user());
         if (!$success) {
             return $this->fail($result);
         }
 
-        return $this->success($result);
+        $stateCookie = $result['state_cookie'];
+        unset($result['state_cookie']);
+
+        return $this->success($result)->withCookie($stateCookie);
     }
 
     public function unbind(string $driver, Request $request)

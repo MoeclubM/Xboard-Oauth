@@ -68,22 +68,16 @@ class OAuthService
         return $items;
     }
 
-    public function prepareBind(string $driver, User $user): array
+    public function prepareBind(string $driver, Request $request, User $user): array
     {
         $provider = $this->getProvider($driver);
         if (!$provider || !$this->isConfigured($provider)) {
             return [false, [400, __('This OAuth provider is not configured')]];
         }
 
-        $bindToken = Str::random(40);
-        Cache::put($this->getBindCacheKey($bindToken), [
+        return [true, $this->createAuthorizePayload($provider, 'bind', $request, [
             'user_id' => $user->id,
-            'driver' => $driver,
-        ], now()->addMinutes(10));
-
-        return [true, [
-            'bind_token' => $bindToken,
-        ]];
+        ])];
     }
 
     public function unbind(string $driver, User $user): array
@@ -189,16 +183,16 @@ class OAuthService
     public function redirect(string $driver, Request $request): RedirectResponse
     {
         $provider = $this->getProvider($driver);
-        $scene = $this->normalizeScene($request->query('scene'));
+        $action = $this->normalizeAction($request->query('scene'));
 
         if (!$provider || !$this->isConfigured($provider)) {
-            return redirect()->away($this->buildFrontendUrl($scene, [
+            return redirect()->away($this->buildFrontendUrl($action, [
                 'oauth_error' => __('This OAuth provider is not configured'),
             ]));
         }
 
-        $bindToken = null;
-        if ($scene === 'bind') {
+        $oauthState = [];
+        if ($action === 'bind') {
             $bindToken = trim((string) $request->query('bind_token'));
             $bindState = $bindToken !== '' ? Cache::get($this->getBindCacheKey($bindToken)) : null;
 
@@ -211,31 +205,14 @@ class OAuthService
                     'oauth_error' => __('The OAuth binding request is invalid or has expired'),
                 ]));
             }
+
+            $oauthState['user_id'] = $bindState['user_id'];
         }
 
-        $state = Str::random(40);
-        $browserState = Str::random(40);
-        Cache::put($this->getStateCacheKey($state), [
-            'driver' => $driver,
-            'scene' => $scene,
-            'redirect' => trim((string) $request->query('redirect', 'dashboard')),
-            'invite_code' => trim((string) $request->query('invite_code')),
-            'browser_state' => $browserState,
-            'bind_token' => $bindToken,
-        ], now()->addMinutes(10));
+        $authorizePayload = $this->createAuthorizePayload($provider, $action, $request, $oauthState);
 
-        return redirect()->away($this->buildAuthorizeUrl($provider, $state))
-            ->withCookie(cookie()->make(
-                $this->getStateCookieName($state),
-                $browserState,
-                10,
-                null,
-                null,
-                $request->isSecure(),
-                true,
-                false,
-                'lax'
-            ));
+        return redirect()->away($authorizePayload['authorize_url'])
+            ->withCookie($authorizePayload['state_cookie']);
     }
 
     public function callback(string $driver, Request $request): RedirectResponse
@@ -258,7 +235,7 @@ class OAuthService
         $forgetStateCookie = cookie()->forget($stateCookieName);
         $stateCookie = (string) $request->cookie($stateCookieName);
         $oauthState = Cache::pull($this->getStateCacheKey($state));
-        $scene = $this->normalizeScene(is_array($oauthState) ? ($oauthState['scene'] ?? null) : null);
+        $action = $this->normalizeAction(is_array($oauthState) ? ($oauthState['action'] ?? $oauthState['scene'] ?? null) : null);
 
         if (
             !$oauthState
@@ -266,13 +243,13 @@ class OAuthService
             || $stateCookie === ''
             || !hash_equals((string) ($oauthState['browser_state'] ?? ''), $stateCookie)
         ) {
-            return redirect()->away($this->buildFrontendUrl($scene, [
+            return redirect()->away($this->buildFrontendUrl($action, [
                 'oauth_error' => __('The OAuth state is invalid or has expired'),
             ]))->withCookie($forgetStateCookie);
         }
 
         if ($request->filled('error')) {
-            return redirect()->away($this->buildFrontendUrl($scene, [
+            return redirect()->away($this->buildFrontendUrl($action, [
                 'oauth_error' => __('OAuth authorization failed'),
             ]))->withCookie($forgetStateCookie);
         }
@@ -281,8 +258,8 @@ class OAuthService
             $tokenData = $this->exchangeCode($provider, (string) $request->query('code'));
             $profile = $this->fetchUserProfile($provider, $tokenData['access_token']);
 
-            if ($scene === 'bind') {
-                [$success, $result] = $this->bindUser($provider, $profile, (string) ($oauthState['bind_token'] ?? ''));
+            if ($action === 'bind') {
+                [$success, $result] = $this->bindUser($provider, $profile, (int) ($oauthState['user_id'] ?? 0));
                 if (!$success) {
                     return redirect()->away($this->buildFrontendUrl('bind', [
                         'oauth_error' => $result[1] ?? __('OAuth bind failed'),
@@ -299,7 +276,7 @@ class OAuthService
             [$success, $result] = $this->resolveUser($request, $provider, $profile, $oauthState);
             if (!$success) {
                 if (($result[2] ?? null) === 'confirm_register') {
-                    return redirect()->away($this->buildFrontendUrl($scene, [
+                    return redirect()->away($this->buildFrontendUrl($action, [
                         'oauth_confirm_token' => $result[3] ?? '',
                         'oauth_provider' => $provider['driver'],
                         'oauth_email' => $result[4] ?? '',
@@ -315,11 +292,11 @@ class OAuthService
                     $query['oauth_provider'] = $provider['driver'];
                 }
 
-                return redirect()->away($this->buildFrontendUrl($scene, $query))->withCookie($forgetStateCookie);
+                return redirect()->away($this->buildFrontendUrl($action, $query))->withCookie($forgetStateCookie);
             }
 
             if ($result->banned) {
-                return redirect()->away($this->buildFrontendUrl($scene, [
+                return redirect()->away($this->buildFrontendUrl($action, [
                     'oauth_error' => __('Your account has been suspended'),
                 ]))->withCookie($forgetStateCookie);
             }
@@ -331,7 +308,7 @@ class OAuthService
 
             $loginUrl = $this->loginService->generateQuickLoginUrl($result, $oauthState['redirect'] ?: 'dashboard');
             if (!$loginUrl) {
-                return redirect()->away($this->buildFrontendUrl($scene, [
+                return redirect()->away($this->buildFrontendUrl($action, [
                     'oauth_error' => __('Failed to generate quick login URL'),
                 ]))->withCookie($forgetStateCookie);
             }
@@ -340,7 +317,7 @@ class OAuthService
         } catch (\Throwable $e) {
             report($e);
 
-            return redirect()->away($this->buildFrontendUrl($scene, [
+            return redirect()->away($this->buildFrontendUrl($action, [
                 'oauth_error' => __('OAuth login failed'),
             ]))->withCookie($forgetStateCookie);
         }
@@ -414,7 +391,7 @@ class OAuthService
         ]), 'confirm_register', $confirmToken, $email]];
     }
 
-    protected function bindUser(array $provider, array $profile, string $bindToken): array
+    protected function bindUser(array $provider, array $profile, int $userId): array
     {
         $providerId = trim((string) ($profile['id'] ?? ''));
         if ($providerId === '') {
@@ -423,20 +400,11 @@ class OAuthService
             ])]];
         }
 
-        if ($bindToken === '') {
+        if ($userId <= 0) {
             return [false, [400, __('The OAuth binding request is invalid or has expired')]];
         }
 
-        $bindState = Cache::pull($this->getBindCacheKey($bindToken));
-        if (
-            !$bindState
-            || ($bindState['driver'] ?? null) !== $provider['driver']
-            || empty($bindState['user_id'])
-        ) {
-            return [false, [400, __('The OAuth binding request is invalid or has expired')]];
-        }
-
-        $user = User::find($bindState['user_id']);
+        $user = User::find($userId);
         if (!$user) {
             return [false, [404, __('The user does not exist')]];
         }
@@ -692,11 +660,36 @@ class OAuthService
         return $provider['authorize_url'] . '?' . http_build_query($params);
     }
 
-    protected function buildFrontendUrl(?string $scene, array $query = []): string
+    protected function createAuthorizePayload(array $provider, string $action, Request $request, array $oauthState = []): array
     {
-        $scene = $this->normalizeScene($scene);
+        $state = Str::random(40);
+        $browserState = Str::random(40);
+        $action = $this->normalizeAction($action);
+
+        $stateData = array_merge([
+            'driver' => $provider['driver'],
+            'action' => $action,
+            'browser_state' => $browserState,
+        ], $oauthState);
+
+        if ($action !== 'bind') {
+            $stateData['redirect'] = trim((string) $request->query('redirect', 'dashboard'));
+            $stateData['invite_code'] = trim((string) $request->query('invite_code'));
+        }
+
+        Cache::put($this->getStateCacheKey($state), $stateData, now()->addMinutes(10));
+
+        return [
+            'authorize_url' => $this->buildAuthorizeUrl($provider, $state),
+            'state_cookie' => $this->makeStateCookie($state, $browserState, $request),
+        ];
+    }
+
+    protected function buildFrontendUrl(?string $action, array $query = []): string
+    {
+        $action = $this->normalizeAction($action);
         $baseUrl = rtrim((string) (admin_setting('app_url') ?: config('app.url') ?: url('/')), '/');
-        $hash = $scene === 'bind' ? '#/app/profile' : '#/' . $scene;
+        $hash = $action === 'bind' ? '#/app/profile' : '#/' . $action;
         if ($query) {
             $hash .= '?' . http_build_query($query);
         }
@@ -715,9 +708,24 @@ class OAuthService
         return (string) admin_setting('app_name', config('app.name', 'Niceboard'));
     }
 
-    protected function normalizeScene(?string $scene): string
+    protected function makeStateCookie(string $state, string $browserState, Request $request)
     {
-        return in_array($scene, ['login', 'register', 'bind'], true) ? $scene : 'login';
+        return cookie()->make(
+            $this->getStateCookieName($state),
+            $browserState,
+            10,
+            null,
+            null,
+            $request->isSecure(),
+            true,
+            false,
+            'lax'
+        );
+    }
+
+    protected function normalizeAction(?string $action): string
+    {
+        return in_array($action, ['login', 'register', 'bind'], true) ? $action : 'login';
     }
 
     protected function isConfigured(array $provider): bool
