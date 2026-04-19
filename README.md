@@ -1,12 +1,12 @@
 # Xboard OAuth Plugin
 
-该仓库提供 Xboard / Niceboard 的 OAuth 登录插件，支持以下第三方平台：
+该仓库提供 Xboard 的 OAuth 登录插件，支持以下第三方平台：
 
 - Google
 - GitHub
 - LinuxDO Connect
 
-插件负责以下能力：
+插件有以下能力：
 
 - 后台插件配置项
 - OAuth 授权与回调路由
@@ -14,21 +14,6 @@
 - 向已登录用户提供第三方账号绑定与解绑接口
 - 首次第三方登录时自动注册站内账号
 - 向前端公开可用的 OAuth 提供方列表
-
-## 仓库结构
-
-本仓库根目录就是插件目录内容。部署时应将整个仓库内容放入目标项目的 `plugins/Oauth` 目录中，目录层级应如下：
-
-```text
-plugins/
-  Oauth/
-    Plugin.php
-    config.json
-    Controllers/
-    Services/
-    routes/
-    database/
-```
 
 ## 安装方法
 
@@ -185,15 +170,8 @@ POST /api/v1/user/oauth/{driver}/unbind
 
 ## 主题适配说明
 
-### Vueboard
+原始 `Xboard` 前端不带 OAuth 按钮。若要在 `Xboard` 中使用本插件，需要额外加入前端入口脚本或等价实现。
 
-当前 `Vueboard` 版本已经接入 OAuth 入口，只要插件启用并完成配置，登录页与注册页就会显示第三方登录按钮。
-
-### Xboard
-
-原始 `Xboard` 前端默认不会自己出现 OAuth 按钮。若要在 `Xboard` 中使用本插件，需要额外加入前端入口脚本或等价实现。
-
-换言之，`原版 Xboard + 仅安装插件 + 不做任何前端修改`，不能直接显示 OAuth 登录入口。
 
 ## 账号规则说明
 
@@ -203,11 +181,3 @@ POST /api/v1/user/oauth/{driver}/unbind
 - 若站内不存在该邮箱账号，且该渠道处于 `direct_register` 模式，则会自动创建新账号。
 - 若该渠道处于 `bind_existing` 模式，则会要求用户先登录现有账号后再完成绑定。
 - 首次通过 OAuth 自动创建账号时，会生成一段随机本地密码并保存哈希值。
-
-## 适用范围
-
-本插件适合以下场景：
-
-- 希望将 OAuth 配置放在插件管理页中维护
-- 希望同时支持 Google、GitHub、LinuxDO Connect
-- 前端主题已经具备 OAuth 按钮接入能力，或准备自行补充这一部分
