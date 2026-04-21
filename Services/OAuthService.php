@@ -689,7 +689,7 @@ class OAuthService
     {
         $action = $this->normalizeAction($action);
         $baseUrl = rtrim((string) (admin_setting('app_url') ?: config('app.url') ?: url('/')), '/');
-        $hash = $action === 'bind' ? '#/app/profile' : '#/' . $action;
+        $hash = $action === 'bind' ? '#/profile' : '#/' . $action;
         if ($query) {
             $hash .= '?' . http_build_query($query);
         }

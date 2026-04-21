@@ -148,8 +148,8 @@ invite_code=当前表单中的邀请码
 
 3. 绑定成功或失败后，插件会回跳到：
 
-- `#/app/profile?oauth_success=...`
-- `#/app/profile?oauth_error=...`
+- `#/profile?oauth_success=...`
+- `#/profile?oauth_error=...`
 
 4. 若需要展示当前绑定状态或提供解绑按钮，可调用：
 
@@ -164,7 +164,7 @@ POST /api/v1/user/oauth/{driver}/unbind
 
 - `https://你的域名/#/login`
 - `https://你的域名/#/register`
-- `https://你的域名/#/app/profile`
+- `https://你的域名/#/profile`
 
 因此，当前实现默认适配使用 `#/login`、`#/register` 的前端主题。如果你的主题不是这一套路由结构，需要同步调整插件中的回跳地址生成逻辑。
 
