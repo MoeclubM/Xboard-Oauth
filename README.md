@@ -40,7 +40,7 @@ git clone https://你的仓库地址/Xboard-Oauth.git plugins/Oauth
 2. 安装并启用 `OAuth 登录` 插件。
 3. 分别填写 Google、GitHub、LinuxDO Connect 的 `Client ID` 与 `Client Secret`。
 4. 按需打开对应平台开关并保存。
-5. 首次安装时只创建独立表 `v2_oauth_accounts` 保存第三方账号绑定关系。若从旧版插件升级，会先把旧版写入 `v2_user.google_id/github_id/linuxdo_id` 的绑定关系导入独立表，再移除这些旧版插件字段；旧版插件扩展过的 `v2_user.email` 会在不存在超过 64 字符邮箱时恢复为 Xboard 原长度。
+5. 首次安装时只创建独立表 `v2_oauth_accounts` 保存第三方账号绑定关系。若从旧版插件升级，会先把旧版写入 `v2_user.google_id/github_id/linuxdo_id` 的绑定关系导入独立表，再移除这些旧版插件字段；不会恢复或修改 `v2_user.email` 长度。
 6. 若启用 Google、GitHub 或 LinuxDO Connect，可分别设置各自的“首次登录模式”：
    - `direct_register`：首次登录且站内不存在可直接绑定的站内账号时，允许创建新账号并完成绑定
    - `bind_existing`：首次登录时仅允许绑定已存在的站内账号，不创建新账号

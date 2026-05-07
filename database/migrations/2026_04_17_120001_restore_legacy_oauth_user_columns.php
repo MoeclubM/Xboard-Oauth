@@ -13,17 +13,12 @@ return new class extends Migration
             return;
         }
 
-        $hadLegacyOAuthColumns = $this->hasLegacyOAuthColumns();
-        if ($hadLegacyOAuthColumns) {
-            $this->assertUserEmailCanBeRestored();
+        if (!$this->hasLegacyOAuthColumns()) {
+            return;
         }
 
         $this->importLegacyBindings();
-
-        if ($hadLegacyOAuthColumns) {
-            $this->dropLegacyOAuthColumns();
-            $this->restoreUserEmailLength();
-        }
+        $this->dropLegacyOAuthColumns();
     }
 
     public function down(): void
@@ -97,21 +92,4 @@ return new class extends Migration
         }
     }
 
-    private function assertUserEmailCanBeRestored(): void
-    {
-        if (Schema::hasColumn('v2_user', 'email') && DB::table('v2_user')->whereRaw('CHAR_LENGTH(`email`) > 64')->exists()) {
-            throw new RuntimeException('Cannot restore v2_user.email to 64 chars because existing emails exceed 64 chars.');
-        }
-    }
-
-    private function restoreUserEmailLength(): void
-    {
-        if (!Schema::hasColumn('v2_user', 'email')) {
-            return;
-        }
-
-        Schema::table('v2_user', function (Blueprint $table) {
-            $table->string('email', 64)->change();
-        });
-    }
 };
