@@ -186,7 +186,9 @@ class OAuthService
         $action = $this->normalizeAction($request->query('scene'));
 
         if (!$provider || !$this->isConfigured($provider)) {
-            return redirect()->away($this->buildFrontendUrl($action, [
+            return redirect()->away($this->buildClientUrl([
+                'client' => $request->query('client'),
+            ], $action, [
                 'oauth_error' => __('This OAuth provider is not configured'),
             ]));
         }
@@ -201,7 +203,9 @@ class OAuthService
                 || ($bindState['driver'] ?? null) !== $driver
                 || empty($bindState['user_id'])
             ) {
-                return redirect()->away($this->buildFrontendUrl('bind', [
+                return redirect()->away($this->buildClientUrl([
+                    'client' => $request->query('client'),
+                ], 'bind', [
                     'oauth_error' => __('The OAuth binding request is invalid or has expired'),
                 ]));
             }
@@ -243,13 +247,13 @@ class OAuthService
             || $stateCookie === ''
             || !hash_equals((string) ($oauthState['browser_state'] ?? ''), $stateCookie)
         ) {
-            return redirect()->away($this->buildFrontendUrl($action, [
+            return redirect()->away($this->buildClientUrl(is_array($oauthState) ? $oauthState : [], $action, [
                 'oauth_error' => __('The OAuth state is invalid or has expired'),
             ]))->withCookie($forgetStateCookie);
         }
 
         if ($request->filled('error')) {
-            return redirect()->away($this->buildFrontendUrl($action, [
+            return redirect()->away($this->buildClientUrl($oauthState, $action, [
                 'oauth_error' => __('OAuth authorization failed'),
             ]))->withCookie($forgetStateCookie);
         }
@@ -261,12 +265,12 @@ class OAuthService
             if ($action === 'bind') {
                 [$success, $result] = $this->bindUser($provider, $profile, (int) ($oauthState['user_id'] ?? 0));
                 if (!$success) {
-                    return redirect()->away($this->buildFrontendUrl('bind', [
+                    return redirect()->away($this->buildClientUrl($oauthState, 'bind', [
                         'oauth_error' => $result[1] ?? __('OAuth bind failed'),
                     ]))->withCookie($forgetStateCookie);
                 }
 
-                return redirect()->away($this->buildFrontendUrl('bind', [
+                return redirect()->away($this->buildClientUrl($oauthState, 'bind', [
                     'oauth_success' => __(':provider account linked successfully', [
                         'provider' => $provider['label'],
                     ]),
@@ -276,7 +280,7 @@ class OAuthService
             [$success, $result] = $this->resolveUser($request, $provider, $profile, $oauthState);
             if (!$success) {
                 if (($result[2] ?? null) === 'confirm_register') {
-                    return redirect()->away($this->buildFrontendUrl($action, [
+                    return redirect()->away($this->buildClientUrl($oauthState, $action, [
                         'oauth_confirm_token' => $result[3] ?? '',
                         'oauth_provider' => $provider['driver'],
                         'oauth_email' => $result[4] ?? '',
@@ -292,11 +296,11 @@ class OAuthService
                     $query['oauth_provider'] = $provider['driver'];
                 }
 
-                return redirect()->away($this->buildFrontendUrl($action, $query))->withCookie($forgetStateCookie);
+                return redirect()->away($this->buildClientUrl($oauthState, $action, $query))->withCookie($forgetStateCookie);
             }
 
             if ($result->banned) {
-                return redirect()->away($this->buildFrontendUrl($action, [
+                return redirect()->away($this->buildClientUrl($oauthState, $action, [
                     'oauth_error' => __('Your account has been suspended'),
                 ]))->withCookie($forgetStateCookie);
             }
@@ -308,8 +312,15 @@ class OAuthService
 
             $loginUrl = $this->loginService->generateQuickLoginUrl($result, $oauthState['redirect'] ?: 'dashboard');
             if (!$loginUrl) {
-                return redirect()->away($this->buildFrontendUrl($action, [
+                return redirect()->away($this->buildClientUrl($oauthState, $action, [
                     'oauth_error' => __('Failed to generate quick login URL'),
+                ]))->withCookie($forgetStateCookie);
+            }
+
+            if ($this->isAppClient($oauthState)) {
+                return redirect()->away($this->buildAppCallbackUrl($action, [
+                    'verify' => $this->extractVerifyFromQuickLoginUrl($loginUrl),
+                    'redirect' => $oauthState['redirect'] ?: 'dashboard',
                 ]))->withCookie($forgetStateCookie);
             }
 
@@ -317,7 +328,7 @@ class OAuthService
         } catch (\Throwable $e) {
             report($e);
 
-            return redirect()->away($this->buildFrontendUrl($action, [
+            return redirect()->away($this->buildClientUrl(is_array($oauthState) ? $oauthState : [], $action, [
                 'oauth_error' => __('OAuth login failed'),
             ]))->withCookie($forgetStateCookie);
         }
@@ -676,6 +687,9 @@ class OAuthService
             $stateData['redirect'] = trim((string) $request->query('redirect', 'dashboard'));
             $stateData['invite_code'] = trim((string) $request->query('invite_code'));
         }
+        if ($request->query('client') === 'app') {
+            $stateData['client'] = 'app';
+        }
 
         Cache::put($this->getStateCacheKey($state), $stateData, now()->addMinutes(10));
 
@@ -695,6 +709,34 @@ class OAuthService
         }
 
         return $baseUrl . '/' . $hash;
+    }
+
+    protected function buildClientUrl(array $oauthState, ?string $action, array $query = []): string
+    {
+        return $this->isAppClient($oauthState)
+            ? $this->buildAppCallbackUrl($action, $query)
+            : $this->buildFrontendUrl($action, $query);
+    }
+
+    protected function buildAppCallbackUrl(?string $action, array $query = []): string
+    {
+        $query['scene'] = $this->normalizeAction($action);
+        return ($this->getString('app_callback_scheme') ?: 'xbclient') . '://oauth?' . http_build_query($query);
+    }
+
+    protected function isAppClient(array $oauthState): bool
+    {
+        return ($oauthState['client'] ?? null) === 'app';
+    }
+
+    protected function extractVerifyFromQuickLoginUrl(string $loginUrl): string
+    {
+        preg_match('/[?&]verify=([^&]+)/', $loginUrl, $matches);
+        if (empty($matches[1])) {
+            throw new \RuntimeException(__('Failed to generate quick login URL'));
+        }
+
+        return urldecode($matches[1]);
     }
 
     protected function getRedirectUri(string $driver): string

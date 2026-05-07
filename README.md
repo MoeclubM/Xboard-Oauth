@@ -172,6 +172,29 @@ POST /api/v1/user/oauth/{driver}/unbind
 
 原始 `Xboard` 前端不带 OAuth 按钮。若要在 `Xboard` 中使用本插件，需要额外加入前端入口脚本或等价实现。
 
+## XBClient App 接入
+
+XBClient App 使用原生深链完成 OAuth 登录/注册，不需要 App 内置第三方 SDK：
+
+1. 插件后台保持默认 `App OAuth 回调 Scheme = xbclient`。
+2. App 读取 `/api/v1/guest/comm/config` 中的 `oauth_providers` 后展示第三方登录/注册按钮。
+3. App 点击按钮打开：
+
+```text
+/api/v1/passport/auth/oauth/{driver}/redirect?scene=login&redirect=dashboard&client=app
+/api/v1/passport/auth/oauth/{driver}/redirect?scene=register&redirect=dashboard&client=app
+```
+
+4. OAuth 成功后插件回跳：
+
+```text
+xbclient://oauth?verify=临时登录令牌&scene=login
+```
+
+5. App 使用 `verify` 调 Xboard 原版 `/api/v1/passport/auth/token2Login` 换取 `auth_data` 并保存登录态。
+
+首次 OAuth 注册仍保留确认步骤：插件会回跳 `xbclient://oauth?oauth_confirm_token=...`，App 确认后调用 `/api/v1/passport/auth/oauth/confirm-register`，再用返回快捷登录地址中的 `verify` 完成登录。
+
 
 ## 账号规则说明
 

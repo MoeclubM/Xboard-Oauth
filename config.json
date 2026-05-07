@@ -137,6 +137,13 @@
       "label": "LinuxDO 用户信息地址",
       "placeholder": "默认通常无需修改",
       "description": "如 LinuxDO Connect 网关地址有调整，可在此覆盖。"
+    },
+    "app_callback_scheme": {
+      "type": "string",
+      "default": "xbclient",
+      "label": "App OAuth 回调 Scheme",
+      "placeholder": "xbclient",
+      "description": "App 登录/注册跳转 OAuth 时使用的回调 scheme；XBClient 默认使用 xbclient://oauth。"
     }
   }
 }
