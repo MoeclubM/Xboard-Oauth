@@ -14,6 +14,10 @@ return new class extends Migration
         }
 
         $hadLegacyOAuthColumns = $this->hasLegacyOAuthColumns();
+        if ($hadLegacyOAuthColumns) {
+            $this->assertUserEmailCanBeRestored();
+        }
+
         $this->importLegacyBindings();
 
         if ($hadLegacyOAuthColumns) {
@@ -93,14 +97,17 @@ return new class extends Migration
         }
     }
 
+    private function assertUserEmailCanBeRestored(): void
+    {
+        if (Schema::hasColumn('v2_user', 'email') && DB::table('v2_user')->whereRaw('CHAR_LENGTH(`email`) > 64')->exists()) {
+            throw new RuntimeException('Cannot restore v2_user.email to 64 chars because existing emails exceed 64 chars.');
+        }
+    }
+
     private function restoreUserEmailLength(): void
     {
         if (!Schema::hasColumn('v2_user', 'email')) {
             return;
-        }
-
-        if (DB::table('v2_user')->whereRaw('CHAR_LENGTH(`email`) > 64')->exists()) {
-            throw new RuntimeException('Cannot restore v2_user.email to 64 chars because existing emails exceed 64 chars.');
         }
 
         Schema::table('v2_user', function (Blueprint $table) {
