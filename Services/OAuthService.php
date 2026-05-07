@@ -721,7 +721,16 @@ class OAuthService
     protected function buildAppCallbackUrl(?string $action, array $query = []): string
     {
         $query['scene'] = $this->normalizeAction($action);
-        return ($this->getString('app_callback_scheme') ?: 'xbclient') . '://oauth?' . http_build_query($query);
+        $callback = HookManager::filter('oauth.native_callback', [
+            'scheme' => $this->getString('native_callback_scheme'),
+            'host' => 'oauth',
+        ], $action, $query);
+        $scheme = trim((string) ($callback['scheme'] ?? ''));
+        if ($scheme === '') {
+            throw new \RuntimeException(__('Native App OAuth callback scheme is not configured'));
+        }
+
+        return $scheme . '://' . trim((string) ($callback['host'] ?? 'oauth')) . '?' . http_build_query($query);
     }
 
     protected function isAppClient(array $oauthState): bool

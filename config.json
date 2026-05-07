@@ -1,7 +1,7 @@
 {
   "name": "OAuth 登录",
   "code": "oauth",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "通过插件管理 Google、GitHub 与 LinuxDO Connect 的 OAuth 登录配置。",
   "author": "MoeclubM",
   "type": "feature",
@@ -138,12 +138,12 @@
       "placeholder": "默认通常无需修改",
       "description": "如 LinuxDO Connect 网关地址有调整，可在此覆盖。"
     },
-    "app_callback_scheme": {
+    "native_callback_scheme": {
       "type": "string",
-      "default": "xbclient",
-      "label": "App OAuth 回调 Scheme",
+      "default": "",
+      "label": "原生 App OAuth 回调 Scheme",
       "placeholder": "xbclient",
-      "description": "App 登录/注册跳转 OAuth 时使用的回调 scheme；XBClient 默认使用 xbclient://oauth。"
+      "description": "原生 App 登录/注册跳转 OAuth 时使用的 deep link scheme；也可由业务插件通过 oauth.native_callback 过滤器提供。Web OAuth 不需要填写。"
     }
   }
 }
