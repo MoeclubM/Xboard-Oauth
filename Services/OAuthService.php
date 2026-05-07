@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Plugin\Oauth\Models\OAuthAccount;
 
 class OAuthService
 {
@@ -49,10 +50,11 @@ class OAuthService
     public function getUserBindings(User $user): array
     {
         $items = [];
+        $bindings = OAuthAccount::where('user_id', $user->id)
+            ->pluck('provider_id', 'provider');
 
         foreach ($this->getProviders() as $driver => $provider) {
-            $providerColumn = $provider['user_column'];
-            $bound = filled($user->{$providerColumn});
+            $bound = filled($bindings[$driver] ?? null);
 
             if (!$bound && !$this->isConfigured($provider)) {
                 continue;
@@ -87,17 +89,9 @@ class OAuthService
             return [false, [404, __('Unsupported OAuth provider')]];
         }
 
-        $providerColumn = $provider['user_column'];
-        if (!$user->{$providerColumn}) {
-            return [true, true];
-        }
-
-        $user->{$providerColumn} = null;
-        if (!$user->save()) {
-            return [false, [500, __('Failed to unbind :provider account', [
-                'provider' => $provider['label'],
-            ])]];
-        }
+        OAuthAccount::where('user_id', $user->id)
+            ->where('provider', $driver)
+            ->delete();
 
         return [true, true];
     }
@@ -122,34 +116,30 @@ class OAuthService
             return [false, [400, __('Unsupported OAuth provider')]];
         }
 
-        $providerColumn = $provider['user_column'];
+        $driver = $provider['driver'];
         $providerId = trim((string) $pendingRegister['provider_id']);
         $email = strtolower(trim((string) ($pendingRegister['email'] ?? '')));
 
-        $user = User::where($providerColumn, $providerId)->first();
+        $user = $this->findLinkedUser($driver, $providerId);
         if (!$user && $email !== '') {
             $user = User::byEmail($email)->first();
             if ($user) {
-                if ($user->{$providerColumn} && $user->{$providerColumn} !== $providerId) {
+                $existing = OAuthAccount::where('user_id', $user->id)
+                    ->where('provider', $driver)
+                    ->first();
+                if ($existing && $existing->provider_id !== $providerId) {
                     return [false, [400, __('This email is already linked to another :provider account', [
                         'provider' => $provider['label'],
                     ])]];
                 }
 
-                $user->{$providerColumn} = $providerId;
-                if (!$user->save()) {
-                    return [false, [500, __('Failed to link :provider account', [
-                        'provider' => $provider['label'],
-                    ])]];
-                }
+                $this->linkUser($user, $driver, $providerId, $email);
             }
         }
 
         if (!$user) {
             [$success, $result] = $this->registerOauthUser(
                 $request,
-                $providerColumn,
-                $providerId,
                 $email,
                 $pendingRegister['invite_code'] ?? null
             );
@@ -159,6 +149,7 @@ class OAuthService
             }
 
             $user = $result;
+            $this->linkUser($user, $driver, $providerId, $email);
         }
 
         if ($user->banned) {
@@ -343,8 +334,8 @@ class OAuthService
             ])]];
         }
 
-        $providerColumn = $provider['user_column'];
-        $user = User::where($providerColumn, $providerId)->first();
+        $driver = $provider['driver'];
+        $user = $this->findLinkedUser($driver, $providerId);
         if ($user) {
             return [true, $user];
         }
@@ -353,18 +344,16 @@ class OAuthService
         if ($email !== '') {
             $user = User::byEmail($email)->first();
             if ($user) {
-                if ($user->{$providerColumn} && $user->{$providerColumn} !== $providerId) {
+                $existing = OAuthAccount::where('user_id', $user->id)
+                    ->where('provider', $driver)
+                    ->first();
+                if ($existing && $existing->provider_id !== $providerId) {
                     return [false, [400, __('This email is already linked to another :provider account', [
                         'provider' => $provider['label'],
                     ])]];
                 }
 
-                $user->{$providerColumn} = $providerId;
-                if (!$user->save()) {
-                    return [false, [500, __('Failed to link :provider account', [
-                        'provider' => $provider['label'],
-                    ])]];
-                }
+                $this->linkUser($user, $driver, $providerId, $email);
 
                 return [true, $user];
             }
@@ -420,34 +409,32 @@ class OAuthService
             return [false, [404, __('The user does not exist')]];
         }
 
-        $providerColumn = $provider['user_column'];
-        $boundUser = User::where($providerColumn, $providerId)->first();
-        if ($boundUser && $boundUser->id !== $user->id) {
+        $driver = $provider['driver'];
+        $boundAccount = OAuthAccount::where('provider', $driver)
+            ->where('provider_id', $providerId)
+            ->first();
+        if ($boundAccount && (int) $boundAccount->user_id !== (int) $user->id) {
             return [false, [400, __('This :provider account is already linked to another user', [
                 'provider' => $provider['label'],
             ])]];
         }
 
-        if ($user->{$providerColumn} && $user->{$providerColumn} !== $providerId) {
+        $existing = OAuthAccount::where('user_id', $user->id)
+            ->where('provider', $driver)
+            ->first();
+        if ($existing && $existing->provider_id !== $providerId) {
             return [false, [400, __('Your account is already linked to another :provider account', [
                 'provider' => $provider['label'],
             ])]];
         }
 
-        $user->{$providerColumn} = $providerId;
-        if (!$user->save()) {
-            return [false, [500, __('Failed to link :provider account', [
-                'provider' => $provider['label'],
-            ])]];
-        }
+        $this->linkUser($user, $driver, $providerId, strtolower(trim((string) ($profile['email'] ?? ''))));
 
         return [true, $user];
     }
 
     protected function registerOauthUser(
         Request $request,
-        string $providerColumn,
-        string $providerId,
         string $email,
         ?string $inviteCode
     ): array {
@@ -507,7 +494,6 @@ class OAuthService
             'password' => Str::random(32),
             'invite_user_id' => $inviteUserId,
         ]);
-        $user->{$providerColumn} = $providerId;
 
         if (!$user->save()) {
             return [false, [500, __('Register failed')]];
@@ -528,6 +514,26 @@ class OAuthService
         }
 
         return [true, $user];
+    }
+
+    protected function findLinkedUser(string $driver, string $providerId): ?User
+    {
+        $account = OAuthAccount::where('provider', $driver)
+            ->where('provider_id', $providerId)
+            ->first();
+
+        return $account ? User::find($account->user_id) : null;
+    }
+
+    protected function linkUser(User $user, string $driver, string $providerId, string $email): void
+    {
+        OAuthAccount::updateOrCreate([
+            'user_id' => $user->id,
+            'provider' => $driver,
+        ], [
+            'provider_id' => $providerId,
+            'email' => $email ?: null,
+        ]);
     }
 
     protected function fetchUserProfile(array $provider, string $accessToken): array
@@ -796,7 +802,6 @@ class OAuthService
             'google' => [
                 'driver' => 'google',
                 'label' => 'Google',
-                'user_column' => 'google_id',
                 'client_id' => $this->isEnabled('google_enabled') ? $this->getString('google_client_id') : null,
                 'client_secret' => $this->isEnabled('google_enabled') ? $this->getString('google_client_secret') : null,
                 'authorize_url' => 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -807,7 +812,6 @@ class OAuthService
             'github' => [
                 'driver' => 'github',
                 'label' => 'GitHub',
-                'user_column' => 'github_id',
                 'client_id' => $this->isEnabled('github_enabled') ? $this->getString('github_client_id') : null,
                 'client_secret' => $this->isEnabled('github_enabled') ? $this->getString('github_client_secret') : null,
                 'authorize_url' => 'https://github.com/login/oauth/authorize',
@@ -819,7 +823,6 @@ class OAuthService
             'linuxdo' => [
                 'driver' => 'linuxdo',
                 'label' => 'LinuxDO Connect',
-                'user_column' => 'linuxdo_id',
                 'client_id' => $this->isEnabled('linuxdo_enabled') ? $this->getString('linuxdo_client_id') : null,
                 'client_secret' => $this->isEnabled('linuxdo_enabled') ? $this->getString('linuxdo_client_secret') : null,
                 'authorize_url' => $this->getString('linuxdo_authorize_url') ?: 'https://connect.linux.do/oauth2/authorize',

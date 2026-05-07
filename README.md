@@ -40,10 +40,7 @@ git clone https://你的仓库地址/Xboard-Oauth.git plugins/Oauth
 2. 安装并启用 `OAuth 登录` 插件。
 3. 分别填写 Google、GitHub、LinuxDO Connect 的 `Client ID` 与 `Client Secret`。
 4. 按需打开对应平台开关并保存。
-5. 首次安装或升级时会执行插件内迁移，为 `v2_user` 表增加以下字段，并将 `email` 字段长度扩展为 `191`：
-   - `google_id`
-   - `github_id`
-   - `linuxdo_id`
+5. 首次安装或升级时会执行插件内迁移，仅创建独立表 `v2_oauth_accounts` 保存第三方账号绑定关系，不修改 `v2_user` 等 Xboard 原表结构。
 6. 若启用 Google、GitHub 或 LinuxDO Connect，可分别设置各自的“首次登录模式”：
    - `direct_register`：首次登录且站内不存在可直接绑定的站内账号时，允许创建新账号并完成绑定
    - `bind_existing`：首次登录时仅允许绑定已存在的站内账号，不创建新账号
@@ -172,6 +169,10 @@ POST /api/v1/user/oauth/{driver}/unbind
 
 原始 `Xboard` 前端不带 OAuth 按钮。若要在 `Xboard` 中使用本插件，需要额外加入前端入口脚本或等价实现。
 
+## 外部程序登录接口
+
+本插件不绑定任何具体客户端。外部程序需要 OAuth 登录/注册时，只要按浏览器 OAuth 流程打开通用授权入口，并在插件配置或业务插件过滤器中提供 deep link scheme 即可。
+
 ## 原生 App 接入
 
 原生 App 使用 deep link 完成 OAuth 登录/注册，不需要 App 内置第三方 SDK。OAuth 插件本身只保留通用 App 回调能力，不绑定具体客户端项目。
@@ -207,8 +208,8 @@ $this->filter('oauth.native_callback', function (array $callback) {
 
 ## 账号规则说明
 
-- `google_id`、`github_id`、`linuxdo_id` 保存的是第三方平台用户唯一标识，不是邮箱。
-- 邮箱用于查找和绑定已有站内账号。
+- 第三方平台用户唯一标识保存在插件独立表 `v2_oauth_accounts`，不是邮箱。
+- 邮箱仅用于查找和绑定已有站内账号。
 - 若站内已存在同邮箱账号，则会绑定到现有账号。
 - 若站内不存在该邮箱账号，且该渠道处于 `direct_register` 模式，则会自动创建新账号。
 - 若该渠道处于 `bind_existing` 模式，则会要求用户先登录现有账号后再完成绑定。
