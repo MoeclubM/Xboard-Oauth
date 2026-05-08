@@ -179,6 +179,7 @@ class OAuthService
         if (!$provider || !$this->isConfigured($provider)) {
             return redirect()->away($this->buildClientUrl([
                 'client' => $request->query('client'),
+                'app_scheme' => trim((string) $request->query('app_scheme')),
             ], $action, [
                 'oauth_error' => __('This OAuth provider is not configured'),
             ]));
@@ -196,6 +197,7 @@ class OAuthService
             ) {
                 return redirect()->away($this->buildClientUrl([
                     'client' => $request->query('client'),
+                    'app_scheme' => trim((string) $request->query('app_scheme')),
                 ], 'bind', [
                     'oauth_error' => __('The OAuth binding request is invalid or has expired'),
                 ]));
@@ -309,7 +311,7 @@ class OAuthService
             }
 
             if ($this->isAppClient($oauthState)) {
-                return redirect()->away($this->buildAppCallbackUrl($action, [
+                return redirect()->away($this->buildAppCallbackUrl($oauthState, $action, [
                     'verify' => $this->extractVerifyFromQuickLoginUrl($loginUrl),
                     'redirect' => $oauthState['redirect'] ?: 'dashboard',
                 ]))->withCookie($forgetStateCookie);
@@ -695,6 +697,7 @@ class OAuthService
         }
         if ($request->query('client') === 'app') {
             $stateData['client'] = 'app';
+            $stateData['app_scheme'] = trim((string) $request->query('app_scheme'));
         }
 
         Cache::put($this->getStateCacheKey($state), $stateData, now()->addMinutes(10));
@@ -720,23 +723,19 @@ class OAuthService
     protected function buildClientUrl(array $oauthState, ?string $action, array $query = []): string
     {
         return $this->isAppClient($oauthState)
-            ? $this->buildAppCallbackUrl($action, $query)
+            ? $this->buildAppCallbackUrl($oauthState, $action, $query)
             : $this->buildFrontendUrl($action, $query);
     }
 
-    protected function buildAppCallbackUrl(?string $action, array $query = []): string
+    protected function buildAppCallbackUrl(array $oauthState, ?string $action, array $query = []): string
     {
         $query['scene'] = $this->normalizeAction($action);
-        $callback = HookManager::filter('oauth.native_callback', [
-            'scheme' => $this->getString('native_callback_scheme'),
-            'host' => 'oauth',
-        ], $action, $query);
-        $scheme = trim((string) ($callback['scheme'] ?? ''));
-        if ($scheme === '') {
+        $scheme = trim((string) ($oauthState['app_scheme'] ?? ''));
+        if ($scheme === '' || !preg_match('/^[a-z][a-z0-9+.-]*$/i', $scheme)) {
             throw new \RuntimeException(__('Native App OAuth callback scheme is not configured'));
         }
 
-        return $scheme . '://' . trim((string) ($callback['host'] ?? 'oauth')) . '?' . http_build_query($query);
+        return $scheme . '://oauth?' . http_build_query($query);
     }
 
     protected function isAppClient(array $oauthState): bool

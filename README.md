@@ -171,40 +171,29 @@ POST /api/v1/user/oauth/{driver}/unbind
 
 ## 外部程序登录接口
 
-本插件不绑定任何具体客户端。外部程序需要 OAuth 登录/注册时，只要按浏览器 OAuth 流程打开通用授权入口，并在插件配置或业务插件过滤器中提供 deep link scheme 即可。
+本插件不绑定任何具体客户端。外部程序需要 OAuth 登录/注册时，按浏览器 OAuth 流程打开通用授权入口，并在请求参数中传入原生 App 的 deep link scheme 即可。
 
 ## 原生 App 接入
 
 原生 App 使用 deep link 完成 OAuth 登录/注册，不需要 App 内置第三方 SDK。OAuth 插件本身只保留通用 App 回调能力，不绑定具体客户端项目。
 
-1. 在插件后台填写 `原生 App OAuth 回调 Scheme`，或由业务插件通过 `oauth.native_callback` 过滤器提供回调参数。
-2. App 读取 `/api/v1/guest/comm/config` 中的 `oauth_providers` 后展示第三方登录/注册按钮。
-3. App 点击按钮打开：
+1. App 读取 `/api/v1/guest/comm/config` 中的 `oauth_providers` 后展示第三方登录/注册按钮。
+2. App 点击按钮打开，并通过 `app_scheme` 传入当前安装包的 deep link scheme：
 
 ```text
-/api/v1/passport/auth/oauth/{driver}/redirect?scene=login&redirect=dashboard&client=app
-/api/v1/passport/auth/oauth/{driver}/redirect?scene=register&redirect=dashboard&client=app
+/api/v1/passport/auth/oauth/{driver}/redirect?scene=login&redirect=dashboard&client=app&app_scheme=secone
+/api/v1/passport/auth/oauth/{driver}/redirect?scene=register&redirect=dashboard&client=app&app_scheme=secone
 ```
 
-4. OAuth 成功后插件回跳：
+3. OAuth 成功后插件回跳：
 
 ```text
 {scheme}://oauth?verify=临时登录令牌&scene=login
 ```
 
-5. App 使用 `verify` 调 Xboard 原版 `/api/v1/passport/auth/token2Login` 换取 `auth_data` 并保存登录态。
+4. App 使用 `verify` 调 Xboard 原版 `/api/v1/passport/auth/token2Login` 换取 `auth_data` 并保存登录态。
 
 首次 OAuth 注册仍保留确认步骤：插件会回跳 `{scheme}://oauth?oauth_confirm_token=...`，App 确认后调用 `/api/v1/passport/auth/oauth/confirm-register`，再用返回快捷登录地址中的 `verify` 完成登录。
-
-业务插件如需接管 App 回调配置，可注册过滤器：
-
-```php
-$this->filter('oauth.native_callback', function (array $callback) {
-    $callback['scheme'] = '你的 App deep link scheme';
-    $callback['host'] = 'oauth';
-    return $callback;
-});
-```
 
 ## 账号规则说明
 
