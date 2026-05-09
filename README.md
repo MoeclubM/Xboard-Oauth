@@ -177,8 +177,8 @@ POST /api/v1/user/oauth/{driver}/unbind
 
 原生 App 使用 deep link 完成 OAuth 登录/注册，不需要 App 内置第三方 SDK。OAuth 插件本身只保留通用 App 回调能力，不绑定具体客户端项目。
 
-1. App 读取 `/api/v1/guest/comm/config` 中的 `oauth_providers` 与 `app_url` 后展示第三方登录/注册按钮。
-2. App 点击按钮打开 `app_url` 域名下的授权入口，并通过 `app_scheme` 传入当前安装包的 deep link scheme：
+1. App 读取 API 域名下 `/api/v1/guest/comm/config` 中的 `oauth_providers` 后展示第三方登录/注册按钮。
+2. App 点击按钮打开 API 域名下的授权入口，并通过 `app_scheme` 传入当前安装包的 deep link scheme：
 
 ```text
 /api/v1/passport/auth/oauth/{driver}/redirect?scene=login&redirect=dashboard&client=app&app_scheme=secone
@@ -194,6 +194,8 @@ POST /api/v1/user/oauth/{driver}/unbind
 4. App 使用 `verify` 调 Xboard 原版 `/api/v1/passport/auth/token2Login` 换取 `auth_data` 并保存登录态。
 
 插件的 OAuth `state` 使用服务端签名并随授权请求传递，不依赖浏览器 Cookie；因此原生 App 可以使用系统浏览器完成授权。
+
+如果 API 域名和网页前端域名分离，App 仍然可以从 API 域名发起 OAuth；第三方平台控制台里的回调地址继续填写面板 `app_url` 域名下的 `/api/v1/passport/auth/oauth/{driver}/callback`。只要这两个域名最终路由到同一套 Xboard 后端配置，签名 state 就能跨域完成校验。
 
 首次 OAuth 注册仍保留确认步骤：插件会回跳 `{scheme}://oauth?oauth_confirm_token=...`，App 确认后调用 `/api/v1/passport/auth/oauth/confirm-register`，再用返回快捷登录地址中的 `verify` 完成登录。
 
