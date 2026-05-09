@@ -45,10 +45,7 @@ class AuthController extends Controller
             return $this->fail($result);
         }
 
-        $stateCookie = $result['state_cookie'];
-        unset($result['state_cookie']);
-
-        return $this->success($result)->withCookie($stateCookie);
+        return $this->success($result);
     }
 
     public function unbind(string $driver, Request $request)
